@@ -49,6 +49,35 @@ def destroyObject(uiObj, toBeDeleteObj):
             uiObj.messageBox('toBeDeleteObj is not a valid object')
 
 
+def getAllUserParameters():
+    app = adsk.core.Application.get()
+    design = app.activeProduct
+    return design.userParameters
+
+
+def createParameterTable(cmdInputs):
+    all_parameters = getAllUserParameters()
+    tableInput = cmdInputs.addTableCommandInput("parameterBulkTable", "Param Changes", 3, "3:2:1")
+    tableInput.columnSpacing = 0
+    tableInput.maximumVisibleRows = 12
+    tableInput.tablePresentationStyle = 2
+
+    parameterNameColumnHeader = cmdInputs.addTextBoxCommandInput("col0Header", "col 0 Header", '<div align="center", style="font-size:12px"><b>Parameter Name</b></div>', 1, True)
+    parameterExpressionColumnHeader = cmdInputs.addTextBoxCommandInput("col1Header", "col 1 Header", '<div align="center", style="font-size:12px"><b>Value</b></div>', 1, True)
+    export1VariationColumnHeader = cmdInputs.addTextBoxCommandInput("col2Header", "col 2 Header", '<div align="center", style="font-size:12px"><b>Export 1</b></div>', 1, True)
+    tableInput.addCommandInput(parameterNameColumnHeader, 0, 0)
+    tableInput.addCommandInput(parameterExpressionColumnHeader, 0, 1)
+    tableInput.addCommandInput(export1VariationColumnHeader, 0, 2)
+
+    current_row = 1
+    for parameter in all_parameters:
+        parameter_name_textbox = cmdInputs.addStringValueInput(f"{parameter.name}TextBox", parameter.name, parameter.name)
+        parameter_value_textbox = cmdInputs.addStringValueInput(f"{parameter.name}Value", parameter.name, parameter.expression)
+        tableInput.addCommandInput(parameter_name_textbox, current_row, 0)
+        tableInput.addCommandInput(parameter_value_textbox, current_row, 1)
+        current_row += 1
+
+
 def run(context):
     ui = None
 
@@ -76,11 +105,11 @@ def run(context):
                 inputs = cmd.commandInputs
 
                 export_file_types_group = inputs.addGroupCommandInput("exportFileTypes", "File Types")
-                
-
                 export_stl_checkbox_input = export_file_types_group.children.addBoolValueInput("exportStlMeshBool", "STL", True)
                 export_step_checkbox_input = export_file_types_group.children.addBoolValueInput("exportStepMeshBool", "Step", True)
                 export_obj_checkbox_input = export_file_types_group.children.addBoolValueInput("exportObjMeshBool", "Obj", True)
+
+                createParameterTable(inputs)
             except:
                 if ui:
                     ui.messageBox('Panel command created failed:\n{}'.format(traceback.format_exc()))
