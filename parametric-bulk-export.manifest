@@ -1,0 +1,13 @@
+{
+	"autodeskProduct":	"Fusion360",
+	"type":	"addin",
+	"id":	"13817fb8-4c40-4c0c-a9f0-d6e84ad7bc7a",
+	"author":	"Callum Maybon",
+	"description":	{
+		"":	"Bulk export meshes, changing selected parameters."
+	},
+	"version":	"1",
+	"runOnStartup":	false,
+	"supportedOS":	"windows|mac",
+	"editEnabled":	true
+}
