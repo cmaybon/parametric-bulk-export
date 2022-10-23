@@ -1,18 +1,93 @@
+from sre_constants import OP_IGNORE
 from . import commands
 from .lib import fusion360utils as futil
 import adsk.core
 import adsk.fusion
 import traceback
+import os
 
 COMMAND_NAME = "Parametrid Export"
 COMMAND_DESCRIPTION = "Bulk export meshes, changing selected parameters." 
-COMMAND_RESOURCES = "./resources"
+COMMAND_RESOURCES = ""
 COMMAND_ID = "parametric-bulk-export"
 TARGET_WORKSPACE = "FusionSolidEnvironment"
 TARGET_PANNEL = "SolidScriptsAddinsPanel"
 
 # global set of event handlers to keep them referenced for the duration of the command
 _handlers = []
+
+
+class ParametricBulkExporter:
+    def __init__(self) -> None:
+        self.app = adsk.core.Application.get()
+        self.ui = self.app.userInterface
+        self.design = self.app.activeProduct
+        self.original_user_paramerter_data = dict()
+    
+    @property
+    def activeComponent(self):
+        return self.design.activeComponent
+
+    def outputFolderDialog(self):
+        folder_dialog = self.ui.createFolderDialog()
+        folder_dialog.title = "Select output folder"
+        result = folder_dialog.showDialog()
+        if result != adsk.core.DialogResults.DialogOK:
+            return None
+        return folder_dialog.folder
+    
+    def cacheUserParameterValues(self):
+        for parameter in self.design.userParameters:
+            self.original_user_paramerter_data[parameter.name] = parameter.expression
+
+    def restoreUserParametersFromCache(self):
+        for name, value in self.original_user_paramerter_data.items():
+            self.design.userParameters.itemByName(name).expression = value
+
+    def getTableStringInput(self, table, row, column):
+        return table.getInputAtPosition(row, column)
+
+    def applyUserParameterChanges(self, change_data):
+        for name, new_value in change_data.items():
+            self.design.userParameters.itemByName(name).expression = new_value
+
+    def createFileName(self, base_filename, changed_parameters):
+        for name, value in changed_parameters.items():
+            base_filename += f"_{str(value).replace(' ', '')}_{name}"
+        return base_filename
+
+    def export(self, parameter_table, do_stl, do_step, do_obj):
+        output_folder = self.outputFolderDialog()
+        self.cacheUserParameterValues()
+        for column in range(parameter_table.numberOfColumns):
+            if column in [0, 1]:
+                continue
+            changed_parameters = dict()
+            for row in range(parameter_table.rowCount):
+                if row == 0:
+                    continue
+                cell_input = self.getTableStringInput(parameter_table, row, column)
+                if cell_input is None or bool(cell_input.value) is False:
+                    continue
+                changed_parameters[str(self.getTableStringInput(parameter_table, row, 0).value)] = cell_input.value
+            if len(changed_parameters) == 0:
+                continue
+            self.applyUserParameterChanges(changed_parameters)
+            self.exportMeshes(output_folder, self.createFileName("testing", changed_parameters), self.activeComponent, do_stl, do_step, do_obj)
+        self.restoreUserParametersFromCache()
+
+    def exportMeshes(self, output_folder, file_name, component, do_stl, do_step, do_obj):
+        export_manager = component.parentDesign.exportManager
+        output_path = os.path.join(output_folder, file_name)
+        if do_stl:
+            options = export_manager.createSTLExportOptions(component, output_path + ".stl")
+            export_manager.execute(options)
+        if do_step:
+            options = export_manager.createSTEPExportOptions(output_path, component)
+            export_manager.execute(options)
+        if do_obj:
+            options = export_manager.createOBJExportOptions(component, output_path)
+            export_manager.execute(options)
 
 
 def commandControlByIdForPanel(command_id):
@@ -56,26 +131,33 @@ def getAllUserParameters():
 
 
 def createParameterTable(cmdInputs):
+    max_export_iterations = 10
     all_parameters = getAllUserParameters()
-    tableInput = cmdInputs.addTableCommandInput("parameterBulkTable", "Param Changes", 3, "3:2:1")
+    tableInput = cmdInputs.addTableCommandInput("parameterBulkTable", "Param Changes", 2 + max_export_iterations, "3:2:1")
     tableInput.columnSpacing = 0
     tableInput.maximumVisibleRows = 12
     tableInput.tablePresentationStyle = 2
 
     parameterNameColumnHeader = cmdInputs.addTextBoxCommandInput("col0Header", "col 0 Header", '<div align="center", style="font-size:12px"><b>Parameter Name</b></div>', 1, True)
     parameterExpressionColumnHeader = cmdInputs.addTextBoxCommandInput("col1Header", "col 1 Header", '<div align="center", style="font-size:12px"><b>Value</b></div>', 1, True)
-    export1VariationColumnHeader = cmdInputs.addTextBoxCommandInput("col2Header", "col 2 Header", '<div align="center", style="font-size:12px"><b>Export 1</b></div>', 1, True)
     tableInput.addCommandInput(parameterNameColumnHeader, 0, 0)
     tableInput.addCommandInput(parameterExpressionColumnHeader, 0, 1)
-    tableInput.addCommandInput(export1VariationColumnHeader, 0, 2)
-
+    for i in range(max_export_iterations):
+        exportVariationColumnHeader = cmdInputs.addTextBoxCommandInput(f"col{2 + i}Header", f"col {2 + i} Header", f'<div align="center", style="font-size:12px"><b>Export {i + 1}</b></div>', 1, True)
+        tableInput.addCommandInput(exportVariationColumnHeader, 0, 2 + i)
+    
     current_row = 1
     for parameter in all_parameters:
         parameter_name_textbox = cmdInputs.addStringValueInput(f"{parameter.name}TextBox", parameter.name, parameter.name)
-        parameter_value_textbox = cmdInputs.addStringValueInput(f"{parameter.name}Value", parameter.name, parameter.expression)
+        parameter_value_textbox = cmdInputs.addStringValueInput(f"{parameter.name}Value", parameter.name, parameter.expression) 
         tableInput.addCommandInput(parameter_name_textbox, current_row, 0)
         tableInput.addCommandInput(parameter_value_textbox, current_row, 1)
+        
+        for i in range(max_export_iterations):
+            parameter_variation_input = cmdInputs.addStringValueInput(f"variation{i}Input", "Varation {i}", "")
+            tableInput.addCommandInput(parameter_variation_input, current_row, 2 + i)
         current_row += 1
+    return tableInput
 
 
 def run(context):
@@ -87,6 +169,13 @@ def run(context):
         def notify(self, args):
             try:
                 print("running command...")
+                inputs = args.command.commandInputs
+
+                parameter_table = inputs.itemById("parameterBulkTable")
+                do_stl = inputs.itemById("exportStlMeshBool").value
+                do_step = inputs.itemById("exportStepMeshBool").value
+                do_obj = inputs.itemById("exportObjMeshBool").value
+                ParametricBulkExporter().export(parameter_table, do_stl, do_step, do_obj)
             except:
                 if ui:
                     ui.messageBox('command executed failed:\n{}'.format(traceback.format_exc()))
