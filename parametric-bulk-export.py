@@ -1,4 +1,3 @@
-from . import commands
 from .lib import fusion360utils as futil
 import adsk.core
 import adsk.fusion
@@ -308,7 +307,6 @@ def start_add_in(context, app, ui):
         toolbar_control_panel = toolbar_controls_panel.addCommand(command_definition, "")
         toolbar_control_panel.isVisible = True
         futil.log(f"{COMMAND_ID} successfully added to add ins panel")
-    commands.start()
 
 
 def stop(context):
@@ -330,6 +328,5 @@ def stop(context):
             destroy_object(ui, obj)
 
         futil.clear_handlers()
-        commands.stop()
     except Exception:
         futil.handle_error('stop')
