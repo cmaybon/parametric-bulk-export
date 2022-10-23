@@ -105,52 +105,6 @@ class ParametricBulkExporter:
             export_manager.execute(options)
 
 
-class CommandExecuteHandler(adsk.core.CommandEventHandler):
-    def __init__(self):
-        super().__init__()
-        self.app = adsk.core.Application.get()
-        self.ui = self.app.userInterface
-
-    def notify(self, args):
-        try:
-            self._notify(args)
-        except Exception:
-            if self.ui:
-                self.ui.messageBox(f"command executed failed:\n{traceback.format_exc()}")
-
-    def _notify(self, args):
-        inputs = args.command.commandInputs
-
-        parameter_table = inputs.itemById("parameterBulkTable")
-        do_stl = inputs.itemById("exportStlMeshBool").value
-        do_step = inputs.itemById("exportStepMeshBool").value
-        do_obj = inputs.itemById("exportObjMeshBool").value
-        ParametricBulkExporter().export(parameter_table, do_stl, do_step, do_obj)
-
-
-class CommandDeactivateHandler(adsk.core.CommandEventHandler):
-    def __init__(self, table_input):
-        super().__init__()
-        self.table_input = table_input
-
-    def notify(self, args) -> None:
-        CACHED_VARIATION_DATA.clear()
-        futil.log("caching variation data")
-        for column in range(self.table_input.numberOfColumns):
-            if column in [0, 1]:
-                continue
-            for row in range(self.table_input.rowCount):
-                if row == 0:
-                    continue
-                parameter_cell = self.table_input.getInputAtPosition(row, 0)
-                variation_cell = self.table_input.getInputAtPosition(row, column)
-                cache_key = f"variation{column - 1}"
-                if CACHED_VARIATION_DATA.get(cache_key) is None:
-                    CACHED_VARIATION_DATA[cache_key] = dict()
-                CACHED_VARIATION_DATA[cache_key][parameter_cell.value] = variation_cell.value
-        futil.log("finished caching variation data")
-
-
 class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
     def __init__(self):
         super().__init__()
@@ -230,6 +184,52 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
                 parameter_variation_input = cmd_inputs.addStringValueInput(f"variation{i}Input", f"Variation {i}", cached_value)
                 table_input.addCommandInput(parameter_variation_input, current_row, 2 + i)
             current_row += 1
+
+
+class CommandExecuteHandler(adsk.core.CommandEventHandler):
+    def __init__(self):
+        super().__init__()
+        self.app = adsk.core.Application.get()
+        self.ui = self.app.userInterface
+
+    def notify(self, args):
+        try:
+            self._notify(args)
+        except Exception:
+            if self.ui:
+                self.ui.messageBox(f"command executed failed:\n{traceback.format_exc()}")
+
+    def _notify(self, args):
+        inputs = args.command.commandInputs
+
+        parameter_table = inputs.itemById("parameterBulkTable")
+        do_stl = inputs.itemById("exportStlMeshBool").value
+        do_step = inputs.itemById("exportStepMeshBool").value
+        do_obj = inputs.itemById("exportObjMeshBool").value
+        ParametricBulkExporter().export(parameter_table, do_stl, do_step, do_obj)
+
+
+class CommandDeactivateHandler(adsk.core.CommandEventHandler):
+    def __init__(self, table_input):
+        super().__init__()
+        self.table_input = table_input
+
+    def notify(self, args) -> None:
+        CACHED_VARIATION_DATA.clear()
+        futil.log("caching variation data")
+        for column in range(self.table_input.numberOfColumns):
+            if column in [0, 1]:
+                continue
+            for row in range(self.table_input.rowCount):
+                if row == 0:
+                    continue
+                parameter_cell = self.table_input.getInputAtPosition(row, 0)
+                variation_cell = self.table_input.getInputAtPosition(row, column)
+                cache_key = f"variation{column - 1}"
+                if CACHED_VARIATION_DATA.get(cache_key) is None:
+                    CACHED_VARIATION_DATA[cache_key] = dict()
+                CACHED_VARIATION_DATA[cache_key][parameter_cell.value] = variation_cell.value
+        futil.log("finished caching variation data")
 
 
 def get_add_in_command_definition(ui):
