@@ -13,6 +13,8 @@ TARGET_WORKSPACE = "FusionSolidEnvironment"
 TARGET_PANEL = "SolidScriptsAddinsPanel"
 _handlers = []
 
+CACHED_VARIATION_DATA = dict()
+
 
 class ParametricBulkExporter:
     def __init__(self) -> None:
@@ -58,17 +60,21 @@ class ParametricBulkExporter:
         self.cache_user_parameter_values()
         futil.log("user parameters cached")
         for column in range(parameter_table.numberOfColumns):
+            # Skip the user parameter name and value columns
             if column in [0, 1]:
                 continue
             futil.log(f"exporting variation {column - 1}")
             changed_parameters = dict()
             for row in range(parameter_table.rowCount):
+                # Skip the header row
                 if row == 0:
                     continue
+
+                parameter_for_row = self.get_table_string_input(parameter_table, row, 0)
                 cell_input = self.get_table_string_input(parameter_table, row, column)
                 if cell_input is None or bool(cell_input.value) is False:
                     continue
-                changed_parameters[str(self.get_table_string_input(parameter_table, row, 0).value)] = cell_input.value
+                changed_parameters[str(parameter_for_row.value)] = cell_input.value
             if len(changed_parameters) == 0:
                 futil.log(f"not exporting variation {column - 1}, no parameters were changed")
                 continue
@@ -122,6 +128,29 @@ class CommandExecuteHandler(adsk.core.CommandEventHandler):
         ParametricBulkExporter().export(parameter_table, do_stl, do_step, do_obj)
 
 
+class CommandDeactivateHandler(adsk.core.CommandEventHandler):
+    def __init__(self, table_input):
+        super().__init__()
+        self.table_input = table_input
+
+    def notify(self, args) -> None:
+        CACHED_VARIATION_DATA.clear()
+        futil.log("caching variation data")
+        for column in range(self.table_input.numberOfColumns):
+            if column in [0, 1]:
+                continue
+            for row in range(self.table_input.rowCount):
+                if row == 0:
+                    continue
+                parameter_cell = self.table_input.getInputAtPosition(row, 0)
+                variation_cell = self.table_input.getInputAtPosition(row, column)
+                cache_key = f"variation{column - 1}"
+                if CACHED_VARIATION_DATA.get(cache_key) is None:
+                    CACHED_VARIATION_DATA[cache_key] = dict()
+                CACHED_VARIATION_DATA[cache_key][parameter_cell.value] = variation_cell.value
+        futil.log("finished caching variation data")
+
+
 class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
     def __init__(self):
         super().__init__()
@@ -149,7 +178,11 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
         export_file_types_group.children.addBoolValueInput("exportStlMeshBool", "STL", True)
         export_file_types_group.children.addBoolValueInput("exportStepMeshBool", "Step", True)
         export_file_types_group.children.addBoolValueInput("exportObjMeshBool", "Obj", True)
-        self.create_parameter_table(inputs)
+        table = self.create_parameter_table(inputs)
+
+        on_deactivate = CommandDeactivateHandler(table)
+        cmd.deactivate.add(on_deactivate)
+        _handlers.append(on_deactivate)
 
     def create_parameter_table(self, cmd_inputs):
         table_input = cmd_inputs.addTableCommandInput("parameterBulkTable",
@@ -189,7 +222,12 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             _add_string_command_input(current_row, 1, parameter.name, parameter.expression)
 
             for i in range(self.export_variations_count):
-                parameter_variation_input = cmd_inputs.addStringValueInput(f"variation{i}Input", f"Variation {i}", "")
+                cached_value = CACHED_VARIATION_DATA.get(f"variation{i + 1}")
+                if cached_value is not None:
+                    cached_value = cached_value.get(parameter.name)
+                if cached_value is None:
+                    cached_value = ""
+                parameter_variation_input = cmd_inputs.addStringValueInput(f"variation{i}Input", f"Variation {i}", cached_value)
                 table_input.addCommandInput(parameter_variation_input, current_row, 2 + i)
             current_row += 1
 
