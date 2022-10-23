@@ -1,5 +1,6 @@
 # parametric-bulk-export
 A Fusion 360 add-in for exporting meshes in batches whilst changing selected user parameters.  
+> NOTE: It only exports the active component.
 
 ![preview](preview.png)
 
